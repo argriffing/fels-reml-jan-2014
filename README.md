@@ -1,6 +1,6 @@
 sample output:
 
-'''
+```
 incidence matrix:
 [[ 1.  0.  0.  0. -1.  0.]
  [ 0.  1.  0.  0. -1.  0.]
@@ -68,5 +68,5 @@ hessian at minimum:
 
 eigenvalues of hessian at minimum:
 [ 0.04869748  0.10964552  0.13732916  0.45567661  0.71675389]
-'''
+```
 
