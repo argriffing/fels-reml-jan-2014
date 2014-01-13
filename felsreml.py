@@ -278,11 +278,19 @@ def demo_trees():
         [0, 0, 0, 0, 1, -1],
         ], dtype=float)
 
+    # Compute the centered coveriance matrices
+    # corresponding to the reference and test branch lengths.
+    LA = centered_tree_covariance(B, nleaves, va)
+    LB = centered_tree_covariance(B, nleaves, vb)
+
     print('incidence matrix:')
     print(B)
     print()
     print('reference branch lengths:')
     print(va)
+    print()
+    print('centered covariance matrix for the reference branch lengths:')
+    print(LA)
     print()
     print('test branch lengths:')
     print(vb)
@@ -320,7 +328,6 @@ def demo_trees():
 
     # check the log likelihood
     print('average log likelihoods:')
-    LB = centered_tree_covariance(B, nleaves, vb)
     ll = log_likelihoods(LB, xs).mean()
     print(ll)
     print()
