@@ -2,27 +2,40 @@
 """
 from __future__ import print_function, division, absolute_import
 
+from functools import partial
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_equal
 
 import scipy
 import scipy.linalg
+import scipy.optimize
 
 import algopy
 from algopy import (log, det, trace, dot, inv, reciprocal, sqrt,
-        ones, ones_like, zeros, zeros_like)
+        ones, ones_like, zeros, zeros_like, diag)
 
 LOG2PI = np.log(2 * np.pi)
 
 
+def eval_grad(f, theta):
+    theta = algopy.UTPM.init_jacobian(theta)
+    return algopy.UTPM.extract_jacobian(f(theta))
+
+
+def eval_hess(f, theta):
+    theta = algopy.UTPM.init_hessian(theta)
+    return algopy.UTPM.extract_hessian(len(theta), f(theta))
+
+
 def assert_square(A):
-    assert_equal(len(A.shape), 2)
-    assert_equal(A.shape[0], A.shape[1])
+    #assert_equal(len(A.shape), 2)
+    #assert_equal(A.shape[0], A.shape[1])
+    pass
 
 def assert_symmetric(A):
     assert_square(A)
-    assert_allclose(A, A.T)
+    #assert_allclose(A, A.T)
 
 def centering(n):
     return np.identity(n) - np.ones((n, n)) / n
@@ -47,8 +60,8 @@ def augmented(A):
     """
     assert_square(A)
     n = A.shape[0]
-    assert_allclose(dot(ones(n), A), zeros(n), atol=1e-12)
-    assert_allclose(dot(A, ones(n)), zeros(n), atol=1e-12)
+    #assert_allclose(dot(ones(n), A), zeros(n), atol=1e-12)
+    #assert_allclose(dot(A, ones(n)), zeros(n), atol=1e-12)
     return A + ones_like(A) / n
 
 def restored(A):
@@ -121,8 +134,70 @@ def kl_divergence(A, B):
             (log_pdet(B_pinv) + log_pdet(A)) - (n-1))
     return 0.5 * stein_loss
 
+def cross_entropy(A, B):
+    #TODO: this could be simplified
+    return differential_entropy(A) + kl_divergence(A, B)
 
-def main():
+
+def centered_tree_covariance(B, nleaves, v):
+    """
+    @param B: rows of this unweighted incidence matrix are edges
+    @param nleaves: number of leaves
+    @param v: vector of edge variances
+    """
+    #TODO: track the block multiplication through the schur complement
+    W = diag(reciprocal(v))
+    L = dot(B.T, dot(W, B))
+    #print('full laplacian matrix:')
+    #print(L)
+    #print()
+    nvertices = v.shape[0]
+    ninternal = nvertices - nleaves
+    Laa = L[:nleaves, :nleaves]
+    Lab = L[:nleaves, nleaves:]
+    Lba = L[nleaves:, :nleaves]
+    Lbb = L[nleaves:, nleaves:]
+    L_schur = Laa - dot(Lab, dot(inv(Lbb), Lba))
+    L_schur_pinv = restored(inv(augmented(L_schur)))
+    #print('schur laplacian matrix:')
+    #print(L_schur)
+    #print()
+    #print('pinv of schur laplacian matrix:')
+    #print(L_schur_pinv)
+    #print()
+    return L_schur_pinv
+
+
+def cross_entropy_trees(B, nleaves, va, vb):
+    """
+    Internal vertices are expected to follow leaves.
+    Rows of B correspond to edges, and columns of B correspond to vertices.
+    The test variances are last.
+    @param B: rows of this unweighted incidence matrix are edges
+    @param nleaves: number of leaves
+    @param va: vector of reference edge variances
+    @param vb: vector of test edge variances
+    """
+
+    # Get the number of edges, vertices, and internal vertices,
+    # and check the shapes of the input arrays.
+    assert_equal(len(va.shape), 1)
+    assert_equal(len(vb.shape), 1)
+    assert_equal(len(B.shape), 2)
+    nedges = B.shape[0]
+    nvertices = B.shape[1]
+    assert_equal(nvertices-1, nedges)
+    ninternal = nvertices - nleaves
+    assert_equal(va.shape[0], nedges)
+    assert_equal(vb.shape[0], nedges)
+
+    # Get the centered covariance matrices and compute the cross entropy.
+    A = centered_tree_covariance(B, nleaves, va)
+    B = centered_tree_covariance(B, nleaves, vb)
+    return cross_entropy(A, B)
+
+
+def demo_covariances():
 
     # define the dimensionality
     n = 4
@@ -177,8 +252,120 @@ def main():
 
     # check cross entropy
     print('cross entropy from A to B:')
-    print(differential_entropy(HAH) + kl_divergence(HAH, HBH))
+    print(cross_entropy(HAH, HBH))
     print()
+
+
+def demo_trees():
+
+    # six vertices
+    # five edges
+    nvertices = 6
+    nleaves = 4
+    nedges = 5
+    log_va = np.random.randn(nedges)
+    va = np.exp(log_va)
+    vb = np.exp(log_va + 0.5 * np.random.randn(nedges))
+
+    # The B matrix defines the tree shape.
+    # Each row of B is an edge.
+    # The first four columns correspond to leaf vertices.
+    B = np.array([
+        [1, 0, 0, 0, -1, 0],
+        [0, 1, 0, 0, -1, 0],
+        [0, 0, 1, 0, 0, -1],
+        [0, 0, 0, 1, 0, -1],
+        [0, 0, 0, 0, 1, -1],
+        ], dtype=float)
+
+    print('incidence matrix:')
+    print(B)
+    print()
+    print('reference branch lengths:')
+    print(va)
+    print()
+    print('test branch lengths:')
+    print(vb)
+    print()
+    print('cross entropy:')
+    print(cross_entropy_trees(B, nleaves, va, vb))
+    print()
+
+    # Sample a bunch of data vectors from the tree
+    # using the reference branch lengths,
+    # and directly applying the univariate conditional normal distribution
+    # of difference across branches associated with Brownian motion.
+    # Center each data vector.
+    # Use a an arbitrary root.
+    print('sampling a bunch of data...')
+    vsqrt = np.sqrt(va)
+    xs = []
+    nsamples = 100000
+    for i in range(nsamples):
+        y = np.zeros(nvertices)
+        y[4] = 0
+        y[5] = np.random.normal(y[4], vsqrt[4])
+        y[0] = np.random.normal(y[4], vsqrt[0])
+        y[1] = np.random.normal(y[4], vsqrt[1])
+        y[2] = np.random.normal(y[5], vsqrt[2])
+        y[3] = np.random.normal(y[5], vsqrt[3])
+        x = y[:nleaves]
+        x -= x.mean()
+        xs.append(x)
+    X = np.array(xs)
+    print()
+    print('sample data covariance matrix:')
+    print(dot(X.T, X)/nsamples)
+    print()
+
+    # check the log likelihood
+    print('average log likelihoods:')
+    LB = centered_tree_covariance(B, nleaves, vb)
+    ll = log_likelihoods(LB, xs).mean()
+    print(ll)
+    print()
+
+    f = partial(cross_entropy_trees, B, nleaves, va)
+    g = partial(eval_grad, f)
+    h = partial(eval_hess, f)
+    G = g(vb)
+    H = h(vb)
+    print('gradient of cross entropy:')
+    print(G)
+    print()
+    print('hessian of cross entropy:')
+    print(H)
+    print()
+    print('eigenvalues of hessian of cross entropy:')
+    print(scipy.linalg.eigvalsh(H))
+    print()
+    
+    print('minimizing cross entropy...')
+    result = scipy.optimize.minimize(f, vb, jac=g, hess=h, method='trust-ncg')
+    xopt = result.x
+    F = f(xopt)
+    G = g(xopt)
+    H = h(xopt)
+    print()
+    print('branch lengths at minimum:')
+    print(xopt)
+    print()
+    print('minimum cross entropy:')
+    print(F)
+    print()
+    print('gradient at minimum:')
+    print(G)
+    print()
+    print('hessian at minimum:')
+    print(H)
+    print()
+    print('eigenvalues of hessian at minimum:')
+    print(scipy.linalg.eigvalsh(H))
+    print()
+
+
+def main():
+    demo_trees()
 
 
 if __name__ == '__main__':
