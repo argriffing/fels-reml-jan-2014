@@ -13,7 +13,7 @@ import scipy.optimize
 import scipy.stats
 
 import algopy
-from algopy import (log, det, trace, dot, inv, reciprocal, sqrt,
+from algopy import (exp, log, det, trace, dot, inv, reciprocal, sqrt,
         ones, ones_like, zeros, zeros_like, diag)
 
 LOG2PI = np.log(2 * np.pi)
@@ -287,6 +287,20 @@ def custom_pruning(v, x):
     ll45 = scipy.stats.norm.logpdf(x23 - x01, loc=0, scale=sigma45)
     return ll01 + ll23 + ll45
 
+def custom_centered_cov(v):
+    """
+    Hardcoded covariance matrix relating leaves.
+    Constructed using an arbitrary root and then doubly centered.
+    """
+    C = np.array([
+        [v[0], 0, 0, 0],
+        [0, v[1], 0, 0],
+        [0, 0, v[2]+v[4], v[4]],
+        [0, 0, v[4], v[3]+v[4]],
+        ], dtype=float)
+    return doubly_centered(C)
+
+
 def demo_trees():
 
     # six vertices
@@ -313,6 +327,12 @@ def demo_trees():
     # corresponding to the reference and test branch lengths.
     LA = centered_tree_covariance(B, nleaves, va)
     LB = centered_tree_covariance(B, nleaves, vb)
+
+    # Hardcoded created centered tree covariance.
+    ccova = custom_centered_cov(va)
+    ccovb = custom_centered_cov(vb)
+    assert_allclose(LA, ccova)
+    assert_allclose(LB, ccovb)
 
     print('incidence matrix:')
     print(B)
@@ -360,15 +380,23 @@ def demo_trees():
     # check the log likelihood using matrix algebra
     print('average log likelihoods using matrix algebra,')
     print('computed using parameters B for data sampled from parameters A:')
-    ll_average = log_likelihoods(LB, xs).mean()
-    print(ll_average)
+    ll_average_matrix = log_likelihoods(LB, xs).mean()
+    print(ll_average_matrix)
     print()
 
     # check the log likelihood using felsenstein pruning
     print('average log likelihoods using felsenstein pruning,')
     print('computed using parameters B for data sampled from parameters A:')
-    ll_average = np.array([custom_pruning(vb, x) for x in xs]).mean()
-    print(ll_average)
+    ll_average_pruning = np.array([custom_pruning(vb, x) for x in xs]).mean()
+    print(ll_average_pruning)
+    print()
+
+    d = ll_average_pruning - ll_average_matrix
+    print('difference of log likelihoods:')
+    print(d)
+    print()
+    print('exp of difference of log likelihoods:')
+    print(exp(d))
     print()
 
     f = partial(cross_entropy_trees, B, nleaves, va)
@@ -410,8 +438,135 @@ def demo_trees():
     print()
 
 
+def demo_small_tree():
+    nvertices = 3
+    nleaves = 2
+    nedges = 2
+    v = np.exp(np.random.randn(2))
+    v1, v2 = v.tolist()
+
+    # define the shape of the tree
+    B = np.array([
+        [1, 0, -1],
+        [0, 1, -1],
+        ], dtype=float)
+
+    # construct the centered covariance matrix using matrix algebra
+    L = centered_tree_covariance(B, nleaves, v)
+
+    # construct the centered covariance matrix using direct methods
+    C = np.array([
+        [v1, 0],
+        [0, v2],
+        ], dtype=float)
+    C = doubly_centered(C)
+    assert_allclose(L, C)
+
+    # sample centered data
+    vsqrt = np.sqrt(v)
+    xs = []
+    nsamples = 1000
+    for i in range(nsamples):
+        x = np.zeros(nleaves)
+        x[0] = np.random.normal(0, vsqrt[0])
+        x[1] = np.random.normal(0, vsqrt[1])
+        x -= x.mean()
+        xs.append(x)
+    X = np.array(xs)
+
+    # check the log likelihood using matrix algebra
+    print('average log likelihoods using matrix algebra')
+    ll_average_matrix = log_likelihoods(L, xs).mean()
+    print(ll_average_matrix)
+    print()
+
+    # check the log likelihood using felsenstein pruning
+    print('average log likelihoods using felsenstein pruning')
+    lls = []
+    for x in xs:
+        ll = scipy.stats.norm.logpdf(x[1] - x[0], loc=0, scale=sqrt(v1 + v2))
+        lls.append(ll)
+    ll_average_pruning = np.mean(lls)
+    print(ll_average_pruning)
+    print()
+
+    d = ll_average_pruning - ll_average_matrix
+    print('difference of log likelihoods:')
+    print(d)
+    print()
+    print('exp of difference of log likelihoods:')
+    print(exp(d))
+    print()
+
+
+def demo_medium_tree():
+    nvertices = 4
+    nleaves = 3
+    nedges = 3
+    v = np.exp(np.random.randn(nedges))
+
+    # define the shape of the tree
+    B = np.array([
+        [1, 0, 0, -1],
+        [0, 1, 0, -1],
+        [0, 0, 1, -1],
+        ], dtype=float)
+
+    # construct the centered covariance matrix using matrix algebra
+    L = centered_tree_covariance(B, nleaves, v)
+
+    # construct the centered covariance matrix using direct methods
+    C = np.array([
+        [v[0], 0, 0],
+        [0, v[1], 0],
+        [0, 0, v[2]],
+        ], dtype=float)
+    C = doubly_centered(C)
+    assert_allclose(L, C)
+
+    # sample centered data
+    vsqrt = np.sqrt(v)
+    xs = []
+    nsamples = 1000
+    for i in range(nsamples):
+        x = np.zeros(nleaves)
+        x[0] = np.random.normal(0, vsqrt[0])
+        x[1] = np.random.normal(0, vsqrt[1])
+        x[2] = np.random.normal(0, vsqrt[2])
+        x -= x.mean()
+        xs.append(x)
+    X = np.array(xs)
+
+    # check the log likelihood using matrix algebra
+    print('average log likelihoods using matrix algebra')
+    ll_average_matrix = log_likelihoods(L, xs).mean()
+    print(ll_average_matrix)
+    print()
+
+    # check the log likelihood using felsenstein pruning
+    print('average log likelihoods using felsenstein pruning')
+    lls = []
+    for x in xs:
+        ll01, d01, x01 = prune_cherry(v[0], v[1], x[0], x[1])
+        ll = scipy.stats.norm.logpdf(x[2] - x01, loc=0, scale=sqrt(v[2] + d01))
+        lls.append(ll + ll01)
+    ll_average_pruning = np.mean(lls)
+    print(ll_average_pruning)
+    print()
+
+    d = ll_average_pruning - ll_average_matrix
+    print('difference of log likelihoods:')
+    print(d)
+    print()
+    print('exp of difference of log likelihoods:')
+    print(exp(d))
+    print()
+
+
 def main():
-    demo_trees()
+    #demo_trees()
+    #demo_small_tree()
+    demo_medium_tree()
 
 
 if __name__ == '__main__':
