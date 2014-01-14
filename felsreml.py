@@ -10,6 +10,7 @@ from numpy.testing import assert_allclose, assert_equal
 import scipy
 import scipy.linalg
 import scipy.optimize
+import scipy.stats
 
 import algopy
 from algopy import (log, det, trace, dot, inv, reciprocal, sqrt,
@@ -255,6 +256,36 @@ def demo_covariances():
     print(cross_entropy(HAH, HBH))
     print()
 
+def prune_cherry(v1, v2, x1, x2):
+    """
+    @param v1: terminal branch length of the first leaf
+    @param v2: terminal branch length of the second leaf
+    @param x1: observed data at the first leaf
+    @param x2: observed data at the second leaf
+    @return: ll, delta, x12
+    """
+    v12 = v1 + v2
+    sigma = sqrt(v12)
+    delta = v1*v2 / v12
+    x12 = (v2*x1 + v1*x2) / v12
+    ll = scipy.stats.norm.logpdf(x2 - x1, loc=0, scale=sigma)
+    return ll, delta, x12
+
+def custom_pruning(v, x):
+    """
+    Do Felsenstein REML pruning using a hardcoded tree.
+    Branch lengths are variances.
+    Return the log likelihood.
+    @param v: branch lengths
+    @param x: data vector
+    @return: ll
+    """
+    ll01, delta01, x01 = prune_cherry(v[0], v[1], x[0], x[1])
+    ll23, delta23, x23 = prune_cherry(v[2], v[3], x[2], x[3])
+    v45 = v[4] + delta01 + delta23
+    sigma45 = sqrt(v45)
+    ll45 = scipy.stats.norm.logpdf(x23 - x01, loc=0, scale=sigma45)
+    return ll01 + ll23 + ll45
 
 def demo_trees():
 
@@ -305,10 +336,10 @@ def demo_trees():
     # of difference across branches associated with Brownian motion.
     # Center each data vector.
     # Use a an arbitrary root.
-    print('sampling a bunch of data...')
+    print('sampling a bunch of data from distribution A...')
     vsqrt = np.sqrt(va)
     xs = []
-    nsamples = 100000
+    nsamples = 1000
     for i in range(nsamples):
         y = np.zeros(nvertices)
         y[4] = 0
@@ -326,10 +357,18 @@ def demo_trees():
     print(dot(X.T, X)/nsamples)
     print()
 
-    # check the log likelihood
-    print('average log likelihoods:')
-    ll = log_likelihoods(LB, xs).mean()
-    print(ll)
+    # check the log likelihood using matrix algebra
+    print('average log likelihoods using matrix algebra,')
+    print('computed using parameters B for data sampled from parameters A:')
+    ll_average = log_likelihoods(LB, xs).mean()
+    print(ll_average)
+    print()
+
+    # check the log likelihood using felsenstein pruning
+    print('average log likelihoods using felsenstein pruning,')
+    print('computed using parameters B for data sampled from parameters A:')
+    ll_average = np.array([custom_pruning(vb, x) for x in xs]).mean()
+    print(ll_average)
     print()
 
     f = partial(cross_entropy_trees, B, nleaves, va)
