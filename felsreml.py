@@ -472,7 +472,6 @@ def demo_small_tree():
         x[1] = np.random.normal(0, vsqrt[1])
         x -= x.mean()
         xs.append(x)
-    X = np.array(xs)
 
     # check the log likelihood using matrix algebra
     print('average log likelihoods using matrix algebra')
@@ -535,7 +534,6 @@ def demo_medium_tree():
         x[2] = np.random.normal(0, vsqrt[2])
         x -= x.mean()
         xs.append(x)
-    X = np.array(xs)
 
     # check the log likelihood using matrix algebra
     print('average log likelihoods using matrix algebra')
