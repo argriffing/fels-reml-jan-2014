@@ -280,12 +280,14 @@ def custom_pruning(v, x):
     @param x: data vector
     @return: ll
     """
+    nleaves = x.shape[0]
     ll01, delta01, x01 = prune_cherry(v[0], v[1], x[0], x[1])
     ll23, delta23, x23 = prune_cherry(v[2], v[3], x[2], x[3])
     v45 = v[4] + delta01 + delta23
     sigma45 = sqrt(v45)
     ll45 = scipy.stats.norm.logpdf(x23 - x01, loc=0, scale=sigma45)
-    return ll01 + ll23 + ll45
+    pruning_adjustment = 0.5 * log(nleaves)
+    return pruning_adjustment + ll01 + ll23 + ll45
 
 def custom_centered_cov(v):
     """
@@ -484,7 +486,8 @@ def demo_small_tree():
     lls = []
     for x in xs:
         ll = scipy.stats.norm.logpdf(x[1] - x[0], loc=0, scale=sqrt(v1 + v2))
-        lls.append(ll)
+        pruning_adjustment = 0.5 * log(nleaves)
+        lls.append(pruning_adjustment + ll)
     ll_average_pruning = np.mean(lls)
     print(ll_average_pruning)
     print()
@@ -547,7 +550,8 @@ def demo_medium_tree():
     for x in xs:
         ll01, d01, x01 = prune_cherry(v[0], v[1], x[0], x[1])
         ll = scipy.stats.norm.logpdf(x[2] - x01, loc=0, scale=sqrt(v[2] + d01))
-        lls.append(ll + ll01)
+        pruning_adjustment = 0.5 * log(nleaves)
+        lls.append(pruning_adjustment + ll + ll01)
     ll_average_pruning = np.mean(lls)
     print(ll_average_pruning)
     print()
@@ -561,10 +565,37 @@ def demo_medium_tree():
     print()
 
 
+def check_multivariate_normal_log_likelihood():
+
+    # sample a full rank covariance matrix and some data
+    n = 5
+    x = np.random.randn(n)
+    X = np.random.randn(n, n)
+    A = dot(X.T, X)
+
+    # get the log likelihood directly
+    a = n * LOG2PI + np.linalg.slogdet(A)[1]
+    b = dot(x, dot(inv(A), x))
+    ll_direct = -0.5 * (a + b)
+
+    # get the log likelihood using scipy multivariate distributions
+    ll_scipy = scipy.stats.multivariate_normal.logpdf(
+            x, mean=np.zeros(n), cov=A)
+
+    print('log likelihood computed directly:')
+    print(ll_direct)
+    print()
+
+    print('log likelihood computed using scipy:')
+    print(ll_scipy)
+    print()
+
+
 def main():
-    #demo_trees()
+    demo_trees()
     #demo_small_tree()
-    demo_medium_tree()
+    #demo_medium_tree()
+    #check_multivariate_normal_log_likelihood()
 
 
 if __name__ == '__main__':
