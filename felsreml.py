@@ -136,8 +136,14 @@ def kl_divergence(A, B):
     return 0.5 * stein_loss
 
 def cross_entropy(A, B):
-    #TODO: this could be simplified
-    return differential_entropy(A) + kl_divergence(A, B)
+    # return differential_entropy(A) + kl_divergence(A, B)
+    # Note that trace(dot(A, B)) == sum(A * B)
+    assert_symmetric(A)
+    assert_symmetric(B)
+    n = A.shape[0]
+    B_pinv = restored(inv(augmented(B)))
+    #return 0.5 * ((n-1) * LOG2PI + trace(dot(B_pinv, A)) + log_pdet(B))
+    return 0.5 * ((n-1) * LOG2PI + (B_pinv * A).sum() + log_pdet(B))
 
 
 def centered_tree_covariance(B, nleaves, v):
