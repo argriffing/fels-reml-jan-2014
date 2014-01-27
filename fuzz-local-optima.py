@@ -88,11 +88,17 @@ def centered_tree_covariance(B, nleaves, v):
     Lab = L[:nleaves, nleaves:]
     Lba = L[nleaves:, :nleaves]
     Lbb = L[nleaves:, nleaves:]
+    Lbb_inv = inv(Lbb)
     try:
-        L_schur = Laa - dot(Lab, dot(inv(Lbb), Lba))
+        Lbb_inv_Lba = dot(Lbb_inv, Lba)
     except ValueError:
         print(L)
+        print('Laa:', Laa, Laa.shape, Laa.dtype)
+        print('Lab:', Lab, Lab.shape, Lab.dtype)
+        print('Lba:', Lba, Lba.shape, Lba.dtype)
+        print('Lbb_inv:', Lbb_inv, Lbb_inv.shape, Lbb_inv.dtype)
         raise
+    L_schur = Laa - dot(Lab, Lbb_inv_Lba)
     L_schur_pinv = restored(inv(augmented(L_schur)))
     #print('schur laplacian matrix:')
     #print(L_schur)
@@ -142,6 +148,7 @@ def main():
 
         # Pick a random number of leaves in the unrooted bifurcating tree.
         # The number of leaves determines the total number of nodes.
+        #nleaves = 2
         nleaves = random.randrange(3, 10)
         ninternal = nleaves - 2
         nvertices = nleaves + ninternal
