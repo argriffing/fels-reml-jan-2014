@@ -1,10 +1,12 @@
 """
-Check for local optima that are not global optima.
+Look for local optima that are not global optima.
 
 """
 from __future__ import print_function, division, absolute_import
 
 from functools import partial
+import itertools
+import random
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_equal
@@ -20,6 +22,8 @@ from algopy import (exp, log, det, trace, dot, inv, reciprocal, sqrt,
 
 from util import (assert_square, assert_symmetric, centering, centering_like,
         doubly_centered, augmented, restored, log_pdet)
+
+from sampletrees import sample_tree
 
 LOG2PI = np.log(2 * np.pi)
 
@@ -84,7 +88,11 @@ def centered_tree_covariance(B, nleaves, v):
     Lab = L[:nleaves, nleaves:]
     Lba = L[nleaves:, :nleaves]
     Lbb = L[nleaves:, nleaves:]
-    L_schur = Laa - dot(Lab, dot(inv(Lbb), Lba))
+    try:
+        L_schur = Laa - dot(Lab, dot(inv(Lbb), Lba))
+    except ValueError:
+        print(L)
+        raise
     L_schur_pinv = restored(inv(augmented(L_schur)))
     #print('schur laplacian matrix:')
     #print(L_schur)
@@ -94,6 +102,8 @@ def centered_tree_covariance(B, nleaves, v):
     #print()
     return L_schur_pinv
 
+def cross_entropy_trees_log_lengths(B, nleaves, log_va, log_vb):
+    return cross_entropy_trees(B, nleaves, exp(log_va), exp(log_vb))
 
 def cross_entropy_trees(B, nleaves, va, vb):
     """
@@ -124,313 +134,59 @@ def cross_entropy_trees(B, nleaves, va, vb):
     return cross_entropy(A, B)
 
 
-def custom_centered_cov(v):
-    """
-    Hardcoded covariance matrix relating leaves.
-    Constructed using an arbitrary root and then doubly centered.
-    """
-    C = np.array([
-        [v[0], 0, 0, 0],
-        [0, v[1], 0, 0],
-        [0, 0, v[2]+v[4], v[4]],
-        [0, 0, v[4], v[3]+v[4]],
-        ], dtype=float)
-    return doubly_centered(C)
-
-
-def demo_trees():
-
-    # six vertices
-    # five edges
-    nvertices = 6
-    nleaves = 4
-    nedges = 5
-    log_va = np.random.randn(nedges)
-    va = np.exp(log_va)
-    vb = np.exp(log_va + 0.5 * np.random.randn(nedges))
-
-    # The B matrix defines the tree shape.
-    # Each row of B is an edge.
-    # The first four columns correspond to leaf vertices.
-    B = np.array([
-        [1, 0, 0, 0, -1, 0],
-        [0, 1, 0, 0, -1, 0],
-        [0, 0, 1, 0, 0, -1],
-        [0, 0, 0, 1, 0, -1],
-        [0, 0, 0, 0, 1, -1],
-        ], dtype=float)
-
-    # Compute the centered coveriance matrices
-    # corresponding to the reference and test branch lengths.
-    LA = centered_tree_covariance(B, nleaves, va)
-    LB = centered_tree_covariance(B, nleaves, vb)
-
-    # Hardcoded created centered tree covariance.
-    ccova = custom_centered_cov(va)
-    ccovb = custom_centered_cov(vb)
-    assert_allclose(LA, ccova)
-    assert_allclose(LB, ccovb)
-
-    print('incidence matrix:')
-    print(B)
-    print()
-    print('reference branch lengths:')
-    print(va)
-    print()
-    print('centered covariance matrix for the reference branch lengths:')
-    print(LA)
-    print()
-    print('test branch lengths:')
-    print(vb)
-    print()
-    print('cross entropy:')
-    print(cross_entropy_trees(B, nleaves, va, vb))
-    print()
-
-    # Sample a bunch of data vectors from the tree
-    # using the reference branch lengths,
-    # and directly applying the univariate conditional normal distribution
-    # of difference across branches associated with Brownian motion.
-    # Center each data vector.
-    # Use a an arbitrary root.
-    print('sampling a bunch of data from distribution A...')
-    vsqrt = np.sqrt(va)
-    xs = []
-    nsamples = 1000
-    for i in range(nsamples):
-        y = np.zeros(nvertices)
-        y[4] = 0
-        y[5] = np.random.normal(y[4], vsqrt[4])
-        y[0] = np.random.normal(y[4], vsqrt[0])
-        y[1] = np.random.normal(y[4], vsqrt[1])
-        y[2] = np.random.normal(y[5], vsqrt[2])
-        y[3] = np.random.normal(y[5], vsqrt[3])
-        x = y[:nleaves]
-        x -= x.mean()
-        xs.append(x)
-    X = np.array(xs)
-    print()
-    print('sample data covariance matrix:')
-    print(dot(X.T, X)/nsamples)
-    print()
-
-    # check the log likelihood using matrix algebra
-    print('average log likelihoods using matrix algebra,')
-    print('computed using parameters B for data sampled from parameters A:')
-    ll_average_matrix = log_likelihoods(LB, xs).mean()
-    print(ll_average_matrix)
-    print()
-
-    # check the log likelihood using felsenstein pruning
-    print('average log likelihoods using felsenstein pruning,')
-    print('computed using parameters B for data sampled from parameters A:')
-    ll_average_pruning = np.array([custom_pruning(vb, x) for x in xs]).mean()
-    print(ll_average_pruning)
-    print()
-
-    d = ll_average_pruning - ll_average_matrix
-    print('difference of log likelihoods:')
-    print(d)
-    print()
-    print('exp of difference of log likelihoods:')
-    print(exp(d))
-    print()
-
-    f = partial(cross_entropy_trees, B, nleaves, va)
-    g = partial(eval_grad, f)
-    h = partial(eval_hess, f)
-    G = g(vb)
-    H = h(vb)
-    print('gradient of cross entropy:')
-    print(G)
-    print()
-    print('hessian of cross entropy:')
-    print(H)
-    print()
-    print('eigenvalues of hessian of cross entropy:')
-    print(scipy.linalg.eigvalsh(H))
-    print()
-    
-    print('minimizing cross entropy...')
-    result = scipy.optimize.minimize(f, vb, jac=g, hess=h, method='trust-ncg')
-    xopt = result.x
-    F = f(xopt)
-    G = g(xopt)
-    H = h(xopt)
-    print()
-    print('branch lengths at minimum:')
-    print(xopt)
-    print()
-    print('minimum cross entropy:')
-    print(F)
-    print()
-    print('gradient at minimum:')
-    print(G)
-    print()
-    print('hessian at minimum:')
-    print(H)
-    print()
-    print('eigenvalues of hessian at minimum:')
-    print(scipy.linalg.eigvalsh(H))
-    print()
-
-
-def demo_small_tree():
-    nvertices = 3
-    nleaves = 2
-    nedges = 2
-    v = np.exp(np.random.randn(2))
-    v1, v2 = v.tolist()
-
-    # define the shape of the tree
-    B = np.array([
-        [1, 0, -1],
-        [0, 1, -1],
-        ], dtype=float)
-
-    # construct the centered covariance matrix using matrix algebra
-    L = centered_tree_covariance(B, nleaves, v)
-
-    # construct the centered covariance matrix using direct methods
-    C = np.array([
-        [v1, 0],
-        [0, v2],
-        ], dtype=float)
-    C = doubly_centered(C)
-    assert_allclose(L, C)
-
-    # sample centered data
-    vsqrt = np.sqrt(v)
-    xs = []
-    nsamples = 1000
-    for i in range(nsamples):
-        x = np.zeros(nleaves)
-        x[0] = np.random.normal(0, vsqrt[0])
-        x[1] = np.random.normal(0, vsqrt[1])
-        x -= x.mean()
-        xs.append(x)
-
-    # check the log likelihood using matrix algebra
-    print('average log likelihoods using matrix algebra')
-    ll_average_matrix = log_likelihoods(L, xs).mean()
-    print(ll_average_matrix)
-    print()
-
-    # check the log likelihood using felsenstein pruning
-    print('average log likelihoods using felsenstein pruning')
-    lls = []
-    for x in xs:
-        ll = scipy.stats.norm.logpdf(x[1] - x[0], loc=0, scale=sqrt(v1 + v2))
-        pruning_adjustment = 0.5 * log(nleaves)
-        lls.append(pruning_adjustment + ll)
-    ll_average_pruning = np.mean(lls)
-    print(ll_average_pruning)
-    print()
-
-    d = ll_average_pruning - ll_average_matrix
-    print('difference of log likelihoods:')
-    print(d)
-    print()
-    print('exp of difference of log likelihoods:')
-    print(exp(d))
-    print()
-
-
-def demo_medium_tree():
-    nvertices = 4
-    nleaves = 3
-    nedges = 3
-    v = np.exp(np.random.randn(nedges))
-
-    # define the shape of the tree
-    B = np.array([
-        [1, 0, 0, -1],
-        [0, 1, 0, -1],
-        [0, 0, 1, -1],
-        ], dtype=float)
-
-    # construct the centered covariance matrix using matrix algebra
-    L = centered_tree_covariance(B, nleaves, v)
-
-    # construct the centered covariance matrix using direct methods
-    C = np.array([
-        [v[0], 0, 0],
-        [0, v[1], 0],
-        [0, 0, v[2]],
-        ], dtype=float)
-    C = doubly_centered(C)
-    assert_allclose(L, C)
-
-    # sample centered data
-    vsqrt = np.sqrt(v)
-    xs = []
-    nsamples = 1000
-    for i in range(nsamples):
-        x = np.zeros(nleaves)
-        x[0] = np.random.normal(0, vsqrt[0])
-        x[1] = np.random.normal(0, vsqrt[1])
-        x[2] = np.random.normal(0, vsqrt[2])
-        x -= x.mean()
-        xs.append(x)
-
-    # check the log likelihood using matrix algebra
-    print('average log likelihoods using matrix algebra')
-    ll_average_matrix = log_likelihoods(L, xs).mean()
-    print(ll_average_matrix)
-    print()
-
-    # check the log likelihood using felsenstein pruning
-    print('average log likelihoods using felsenstein pruning')
-    lls = []
-    for x in xs:
-        ll01, d01, x01 = prune_cherry(v[0], v[1], x[0], x[1])
-        ll = scipy.stats.norm.logpdf(x[2] - x01, loc=0, scale=sqrt(v[2] + d01))
-        pruning_adjustment = 0.5 * log(nleaves)
-        lls.append(pruning_adjustment + ll + ll01)
-    ll_average_pruning = np.mean(lls)
-    print(ll_average_pruning)
-    print()
-
-    d = ll_average_pruning - ll_average_matrix
-    print('difference of log likelihoods:')
-    print(d)
-    print()
-    print('exp of difference of log likelihoods:')
-    print(exp(d))
-    print()
-
-
-def check_multivariate_normal_log_likelihood():
-
-    # sample a full rank covariance matrix and some data
-    n = 5
-    x = np.random.randn(n)
-    X = np.random.randn(n, n)
-    A = dot(X.T, X)
-
-    # get the log likelihood directly
-    a = n * LOG2PI + np.linalg.slogdet(A)[1]
-    b = dot(x, dot(inv(A), x))
-    ll_direct = -0.5 * (a + b)
-
-    # get the log likelihood using scipy multivariate distributions
-    ll_scipy = scipy.stats.multivariate_normal.logpdf(
-            x, mean=np.zeros(n), cov=A)
-
-    print('log likelihood computed directly:')
-    print(ll_direct)
-    print()
-
-    print('log likelihood computed using scipy:')
-    print(ll_scipy)
-    print()
-
 
 def main():
-    demo_trees()
-    #demo_small_tree()
-    #demo_medium_tree()
-    #check_multivariate_normal_log_likelihood()
+    nsamples = 0
+    largest_error = None
+    for nsamples in itertools.count():
+
+        # Pick a random number of leaves in the unrooted bifurcating tree.
+        # The number of leaves determines the total number of nodes.
+        nleaves = random.randrange(3, 10)
+        ninternal = nleaves - 2
+        nvertices = nleaves + ninternal
+        nedges = nvertices - 1
+
+        # Sample the shape of the tree.
+        B = sample_tree(nleaves)
+
+        # Sample branch log lengths for the reference covariance matrix.
+        log_va = np.random.randn(nedges)
+        va = exp(log_va)
+
+        # Sample branch log lengths for the initial guess.
+        log_vb = np.random.randn(nedges)
+
+        # Define the cross entropy function and gradient and hessian.
+        f = partial(cross_entropy_trees_log_lengths, B, nleaves, log_va)
+        g = partial(eval_grad, f)
+        h = partial(eval_hess, f)
+
+        # Use a trust region conjugate gradient search for a local optimum.
+        result = scipy.optimize.minimize(
+                f, log_vb, jac=g, hess=h, method='trust-ncg')
+        log_xopt = result.x
+        xopt = exp(log_xopt)
+
+        # Compute the branch length error.
+        error = np.linalg.norm(xopt - va)
+
+        # If the error is large then report some error.
+        if largest_error is None or error > largest_error:
+            F = f(log_xopt)
+            G = g(log_xopt)
+            H = h(log_xopt)
+            largest_error = error
+            print('new largest error:', largest_error)
+            print('iteration:', nsamples + 1)
+            print('number of leaves:', nleaves)
+            print('incidence matrix:')
+            print(B)
+            print('true branch lengths:')
+            print(va)
+            print('locally optimal branch lengths:')
+            print(xopt)
+            print()
 
 
 if __name__ == '__main__':

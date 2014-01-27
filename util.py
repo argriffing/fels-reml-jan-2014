@@ -57,3 +57,4 @@ def log_pdet(A):
     @return: log of pseudo determinant
     """
     return log(det(augmented(A)))
+
