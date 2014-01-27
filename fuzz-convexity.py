@@ -1,5 +1,5 @@
 """
-Look for local optima that are not global optima.
+Look for instances of non-convexity.
 
 """
 from __future__ import print_function, division, absolute_import
@@ -129,42 +129,54 @@ def main():
         # Sample the shape of the tree.
         B = sample_tree(nleaves)
 
-        # Sample branch log lengths for the reference covariance matrix.
-        log_va = np.random.randn(nedges)
-        va = exp(log_va)
+        # Sample the reference branch lengths.
+        vref = np.exp(np.random.randn(nedges))
 
-        # Sample branch log lengths for the initial guess.
-        log_vb = np.random.randn(nedges)
+        # Sample two vectors of branch lengths.
+        va = np.exp(np.random.randn(nedges))
+        vb = np.exp(np.random.randn(nedges))
 
-        # Define the cross entropy function and gradient and hessian.
-        f = partial(cross_entropy_trees_log_lengths, B, nleaves, log_va)
-        g = partial(eval_grad, f)
-        h = partial(eval_hess, f)
+        # Sample a convex combination parameter.
+        t = np.random.rand()
 
-        # Use a trust region conjugate gradient search for a local optimum.
-        result = scipy.optimize.minimize(
-                f, log_vb, jac=g, hess=h, method='trust-ncg')
-        log_xopt = result.x
-        xopt = exp(log_xopt)
+        # Sample the point between the two points.
+        vc = t * vb + (1 - t) * va
 
-        # Compute the branch length error.
-        error = np.linalg.norm(xopt - va)
+        # Compute the cross entropy at the three points.
+        fa = cross_entropy_trees(B, nleaves, vref, va)
+        fb = cross_entropy_trees(B, nleaves, vref, vb)
+        fc = cross_entropy_trees(B, nleaves, vref, vc)
 
-        # If the error is large then report some error.
-        if largest_error is None or error > largest_error:
-            F = f(log_xopt)
-            G = g(log_xopt)
-            H = h(log_xopt)
-            largest_error = error
-            print('new largest error:', largest_error)
+        # Check the quasi-convexity condition.
+        quasiconvexity_fail = False
+        if fc > max(fa, fb):
+            quasiconvexity_fail = True
+            print('the quasi-convexity condition is violated')
+
+        # Check the convexity condition.
+        convexity_fail = False
+        #if fc > t * fb + (1 - t) * fa:
+            #convexity_fail = True
+            #print('the convexity condition is violated')
+
+        # Report some stuff if a convexity condition is violated.
+        if convexity_fail or quasiconvexity_fail:
             print('iteration:', nsamples + 1)
             print('number of leaves:', nleaves)
             print('incidence matrix:')
             print(B)
-            print('true branch lengths:')
+            print('reference branch lengths:')
+            print(vref)
+            print('mixing parameter:')
+            print(t)
+            print('branch lengths va, vb, vc:')
             print(va)
-            print('locally optimal branch lengths:')
-            print(xopt)
+            print(vb)
+            print(vc)
+            print('function values fa, fb, fc:')
+            print(fa)
+            print(fb)
+            print(fc)
             print()
 
 
