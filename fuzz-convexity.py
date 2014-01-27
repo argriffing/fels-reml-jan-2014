@@ -120,8 +120,8 @@ def main():
 
         # Pick a random number of leaves in the unrooted bifurcating tree.
         # The number of leaves determines the total number of nodes.
-        #nleaves = 2
-        nleaves = random.randrange(3, 10)
+        nleaves = 3
+        #nleaves = random.randrange(3, 10)
         ninternal = nleaves - 2
         nvertices = nleaves + ninternal
         nedges = nvertices - 1
@@ -135,6 +135,9 @@ def main():
         # Sample two vectors of branch lengths.
         va = np.exp(np.random.randn(nedges))
         vb = np.exp(np.random.randn(nedges))
+
+        # XXX check star convexity and quasi-convexity
+        va = vref
 
         # Sample a convex combination parameter.
         t = np.random.rand()
@@ -151,13 +154,15 @@ def main():
         quasiconvexity_fail = False
         if fc > max(fa, fb):
             quasiconvexity_fail = True
-            print('the quasi-convexity condition is violated')
+            #print('the quasi-convexity condition is violated')
+            print('the star quasi-convexity condition is violated')
 
         # Check the convexity condition.
         convexity_fail = False
         #if fc > t * fb + (1 - t) * fa:
             #convexity_fail = True
-            #print('the convexity condition is violated')
+            ##print('the convexity condition is violated')
+            #print('the star convexity condition is violated')
 
         # Report some stuff if a convexity condition is violated.
         if convexity_fail or quasiconvexity_fail:
