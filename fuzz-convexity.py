@@ -113,15 +113,16 @@ def cross_entropy_trees(B, nleaves, va, vb):
     return cross_entropy(A, B)
 
 
-def main():
+
+def check_convexity():
     nsamples = 0
     largest_error = None
     for nsamples in itertools.count():
 
         # Pick a random number of leaves in the unrooted bifurcating tree.
         # The number of leaves determines the total number of nodes.
-        nleaves = 3
-        #nleaves = random.randrange(3, 10)
+        #nleaves = 3
+        nleaves = random.randrange(3, 10)
         ninternal = nleaves - 2
         nvertices = nleaves + ninternal
         nedges = nvertices - 1
@@ -183,6 +184,75 @@ def main():
             print(fb)
             print(fc)
             print()
+
+
+def check_star_gradient():
+    """
+    Does the objective always decrease in the direction of the global optimum?
+
+    """
+    largest_error = None
+    for nsamples in itertools.count():
+
+        # Pick a random number of leaves in the unrooted bifurcating tree.
+        # The number of leaves determines the total number of nodes.
+        #nleaves = 3
+        nleaves = random.randrange(3, 10)
+        ninternal = nleaves - 2
+        nvertices = nleaves + ninternal
+        nedges = nvertices - 1
+
+        # Sample the shape of the tree.
+        B = sample_tree(nleaves)
+
+        # Sample the reference branch lengths.
+        vref = np.exp(np.random.randn(nedges))
+
+        # Sample a test point vector of branch lengths.
+        vb = np.exp(np.random.randn(nedges))
+
+        # Define the cross entropy objective function.
+        f = partial(cross_entropy_trees, B, nleaves, vref)
+
+        # Define the gradient.
+        g = partial(eval_grad, f)
+
+        # Compute the gradient at the test point.
+        G = g(vb)
+
+        # Use a first order approximation, around the test point,
+        # to estimate the objective function at the reference point.
+        # The difference between this estimate and the objective function
+        # value at the test point is delta.
+        delta = np.dot(G, vref - vb)
+
+        # If delta is positive then the tentative gradient condition
+        # approach to proving the "globality of local optima" conjecture fails.
+        gradient_condition_fail = False
+        if delta > 0:
+            gradient_condition_fail = True
+            print('star gradient condition fails')
+
+        # Report some stuff if a convexity condition is violated.
+        if gradient_condition_fail:
+            print('iteration:', nsamples + 1)
+            print('number of leaves:', nleaves)
+            print('incidence matrix:')
+            print(B)
+            print('reference branch lengths:')
+            print(vref)
+            print('branch lengths vb:')
+            print(vb)
+            print('gradient at vb:')
+            print(G)
+            print('delta:')
+            print(delta)
+            print()
+
+
+def main():
+    check_star_gradient()
+    #check_convexity()
 
 
 if __name__ == '__main__':
