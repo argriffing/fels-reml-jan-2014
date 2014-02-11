@@ -95,6 +95,61 @@ def cross_entropy(A, B):
     #return 0.5 * ((n-1) * LOG2PI + trace(dot(B_pinv, A)) + log_pdet(B))
     return 0.5 * ((n-1) * LOG2PI + (B_pinv * A).sum() + log_pdet(B))
 
+def augment_info(B, va, vb):
+    n = B.shape[1]
+    B = np.vstack((np.ones(n), B))
+    va = np.hstack(([n], va))
+    vb = np.hstack(([n], vb))
+    return B, va, vb
+
+def clever_cross_entropy_trees(B, nleaves, va, vb):
+    """
+    Try being a little more clever.
+
+    @param B: augmented incidence matrix
+    @param nleaves: number of leaves
+    @param va: augmented reference point edge variances
+    @param vb: augmented test point edge variances
+    """
+
+    # deduce some quantities assuming an unrooted bifurcating tree
+    ninternal = nleaves - 2
+    nvertices = nleaves + ninternal
+    nedges = nvertices - 1
+
+    # define an index for taking schur complements
+    n = nvertices
+    k = nleaves + 1
+
+    # Construct the full Laplacian matrix plus J/n.
+    # Take a block of the diagonal, corresponding to the inverse
+    # of a schur complement.
+    Wa = diag(reciprocal(va))
+    La_plus = dot(B.T, dot(Wa, B))
+    print(La_plus)
+    print(scipy.linalg.eigh(La_plus))
+    Laa = La_plus[:k, :k]
+    Lab = La_plus[:k, k:]
+    Lba = La_plus[k:, :k]
+    Lbb = La_plus[k:, k:]
+    L_schur_plus = Laa - dot(Lab, dot(inv(Lbb), Lba))
+    assert_allclose(inv(L_schur_plus), inv(La_plus)[:k, :k])
+    A = inv(La_plus)[:k, :k]
+    print(scipy.linalg.eigh(A))
+
+    # Construct the Schur complement of the test point matrix.
+    Wb = diag(reciprocal(vb))
+    L_plus = dot(B.T, dot(Wb, B))
+    Laa = L_plus[:k, :k]
+    Lab = L_plus[:k, k:]
+    Lba = L_plus[k:, :k]
+    Lbb = L_plus[k:, k:]
+    L_schur_plus = Laa - dot(Lab, dot(inv(Lbb), Lba))
+    B_inv = L_schur_plus
+    #return 0.5 * ((n-1) * LOG2PI + trace(dot(B_inv, A)) - log(det(B_inv)))
+    return 0.5 * (n * LOG2PI + trace(dot(B_inv, A) - 1) - log(det(B_inv)))
+
+
 
 def centered_tree_covariance(B, nleaves, v):
     """
@@ -396,6 +451,46 @@ def demo_trees():
     print()
 
 
+
+def demo_trees_clever():
+    """
+    Compare a more clever way to compute cross entropy to the normal way.
+    """
+
+    # six vertices
+    # five edges
+    nvertices = 6
+    nleaves = 4
+    nedges = 5
+    log_va = np.random.randn(nedges)
+    va = np.exp(log_va)
+    vb = np.exp(log_va + 0.5 * np.random.randn(nedges))
+
+    # The B matrix defines the tree shape.
+    # Each row of B is an edge.
+    # The first four columns correspond to leaf vertices.
+    B = np.array([
+        [1, 0, 0, 0, -1, 0],
+        [0, 1, 0, 0, -1, 0],
+        [0, 0, 1, 0, 0, -1],
+        [0, 0, 0, 1, 0, -1],
+        [0, 0, 0, 0, 1, -1],
+        ], dtype=float)
+
+    # Compute the centered coveriance matrices
+    # corresponding to the reference and test branch lengths.
+    LA = centered_tree_covariance(B, nleaves, va)
+    LB = centered_tree_covariance(B, nleaves, vb)
+
+    B_aug, va_aug, vb_aug = augment_info(B, va, vb)
+
+    ci_clever = clever_cross_entropy_trees(B_aug, nleaves, va_aug, vb_aug)
+    ci_plain = cross_entropy_trees(B, nleaves, va, vb)
+
+    assert_allclose(ci_clever, ci_plain)
+
+
+
 def demo_small_tree():
     nvertices = 3
     nleaves = 2
@@ -548,10 +643,11 @@ def check_multivariate_normal_log_likelihood():
 
 
 def main():
-    demo_trees()
+    #demo_trees()
     #demo_small_tree()
     #demo_medium_tree()
     #check_multivariate_normal_log_likelihood()
+    demo_trees_clever()
 
 
 if __name__ == '__main__':
